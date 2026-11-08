@@ -1,7 +1,7 @@
 // 3D anime qiz: VRM model, mimika, ko'z, soch (spring bone), tana harakatlari
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRMLoaderPlugin, VRMUtils, VRMSpringBoneCollider, VRMSpringBoneColliderShapeSphere } from '@pixiv/three-vrm';
 
 const EMOTIONS = {
   neutral: {},
@@ -27,7 +27,73 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const noise = (t, s = 0) => Math.sin(t * 1.3 + s) * 0.5 + Math.sin(t * 2.1 + s * 1.7) * 0.3 + Math.sin(t * 0.7 + s * 3.1) * 0.2;
 
 // Tana harakatlari: abs = aniq poza, add = qo'shimcha tebranish. t — soniyada
+// O'ng qo'l pozasidan chap qo'l pozasini (ko'zgu) yasash
+const ARMS = (ua, ly) => ({
+  rightUpperArm: ua, rightLowerArm: [0, ly, 0],
+  leftUpperArm: [ua[0], -ua[1], -ua[2]], leftLowerArm: [0, -ly, 0],
+});
+const mixArr = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+const POSE = {
+  clapIn: { ua: [-0.2, 0.8, 1.2], ly: 1.4 },
+  clapOut: { ua: [-0.2, 0.25, 1.4], ly: 1.6 },
+  face: { ua: [-1.35, 0.35, 1.5], ly: 2.2 },
+  belly: { ua: [0.6, 0.8, 0.6], ly: 1.6 },
+  fist: { ua: [0, 0.4, 1.2], ly: 1.6 },
+};
+
 const GESTURES = {
+  // kulish: bosh orqaga, yelkalar silkinadi, og'iz ochiq
+  laugh: {
+    dur: 2.2, fn: (t) => {
+      const sh = Math.sin(t * 15);
+      return {
+        add: { head: [-0.14 + sh * 0.035, 0, 0.06], spine: [-0.04, 0, 0], leftShoulder: [0, 0, sh * 0.05], rightShoulder: [0, 0, -sh * 0.05] },
+        mouth: { aa: 0.55 + Math.abs(sh) * 0.35, ee: 0.2 },
+      };
+    },
+  },
+  // qahqaha: qornini ushlab, oldinga egilib kuladi
+  bellylaugh: {
+    dur: 3.2, fn: (t) => {
+      const sh = Math.sin(t * 13);
+      return {
+        abs: ARMS(POSE.belly.ua, POSE.belly.ly),
+        add: { spine: [0.22 + sh * 0.03, 0, 0], chest: [0.08, 0, 0], head: [0.05 + sh * 0.06, 0, 0.05] },
+        mouth: { aa: 0.65 + Math.abs(sh) * 0.3, ee: 0.15 },
+      };
+    },
+  },
+  // qarsak chalish
+  clap: {
+    dur: 2.4, fn: (t) => {
+      const k = Math.pow((Math.sin(t * 13) + 1) / 2, 2);
+      return {
+        abs: ARMS(mixArr(POSE.clapOut.ua, POSE.clapIn.ua, k), POSE.clapOut.ly + (POSE.clapIn.ly - POSE.clapOut.ly) * k),
+        add: { head: [-0.05, 0, Math.sin(t * 3) * 0.05] },
+        mouth: { aa: 0.25, ee: 0.2 },
+      };
+    },
+  },
+  // uyalib yuzini qo'llari bilan yopadi
+  cover: {
+    dur: 3.0, fn: (t) => ({
+      abs: ARMS(POSE.face.ua, POSE.face.ly),
+      add: { head: [0.16, Math.sin(t * 2.5) * 0.12, 0], spine: [0.06, 0, 0] },
+    }),
+  },
+  // hayajon: mushtlarini siqib sakraydi
+  excited: {
+    dur: 2.0, fn: (t) => {
+      const b = Math.sin(t * 9);
+      return {
+        pos: Math.abs(b) * 0.045 * (1 - t / 2),
+        abs: ARMS([POSE.fist.ua[0] - 0.2 * Math.abs(b), POSE.fist.ua[1], POSE.fist.ua[2]], POSE.fist.ly + Math.abs(b) * 0.3),
+        add: { head: [-0.06 + b * 0.03, 0, 0] },
+        mouth: { aa: 0.4, ee: 0.3 },
+      };
+    },
+  },
+
   nod: { dur: 1.3, fn: (t) => ({ add: { head: [Math.sin(t * 11) * 0.18 * (1 - t / 1.3), 0, 0], neck: [Math.sin(t * 11) * 0.06, 0, 0] } }) },
   shake: { dur: 1.4, fn: (t) => ({ add: { head: [0, Math.sin(t * 10) * 0.28 * (1 - t / 1.4), 0] } }) },
   tilt: { dur: 2.2, fn: () => ({ add: { head: [0, 0.1, 0.28], neck: [0, 0, 0.08] } }) },
@@ -121,7 +187,7 @@ export class Avatar {
     this.camera.updateProjectionMatrix();
   }
 
-  async load(url, onProgress) {
+  async load(url, onProgress, look) {
     const loader = new GLTFLoader();
     loader.register((p) => new VRMLoaderPlugin(p));
     const gltf = await loader.loadAsync(url, (e) => e.total && onProgress?.(e.loaded / e.total));
@@ -131,6 +197,9 @@ export class Avatar {
     VRMUtils.combineSkeletons?.(gltf.scene);
     VRMUtils.rotateVRM0(vrm);
     vrm.scene.traverse((o) => { o.frustumCulled = false; });
+    if (look) applyLook(vrm, look);
+    // VRM 0.x da normallashtirilgan suyaklarning X va Z burilishi teskari
+    this.flip = vrm.meta?.metaVersion === '0' ? -1 : 1;
 
     if (this.vrm) {
       this.scene.remove(this.vrm.scene);
@@ -152,6 +221,7 @@ export class Avatar {
     this.headY = hp.y;
     this.camTarget.set(0, hp.y - 0.12, 0);
     // fizikani tinchlantirish (soch "sakrab" ketmasligi uchun)
+    addBodyColliders(vrm);
     vrm.springBoneManager?.reset();
   }
 
@@ -312,10 +382,19 @@ export class Avatar {
         for (let i = 0; i < 3; i++) pose[bn][i] += v[i] * w;
       }
       hipLift += (r.pos || 0) * w;
+      // gapirmayotgan bo'lsa — harakatga mos og'iz (kulgi va h.k.)
+      if (r.mouth && !this.speaking) {
+        for (const [k, v] of Object.entries(r.mouth)) {
+          const target = v * w;
+          this.mouthCur[k] = Math.max(this.mouthCur[k], target);
+          this.vrm.expressionManager?.setValue(k, this.mouthCur[k]);
+        }
+      }
       if (g.t >= g.dur) this.gesture = null;
     }
 
-    for (const [bn, v] of Object.entries(pose)) B[bn]?.rotation.set(v[0], v[1], v[2]);
+    const f = this.flip || 1;
+    for (const [bn, v] of Object.entries(pose)) B[bn]?.rotation.set(v[0] * f, v[1], v[2] * f);
     if (B.hips) B.hips.position.y = this.hipsY + hipLift;
   }
 }
@@ -355,4 +434,140 @@ function makePetals() {
   g.beginPath(); g.ellipse(16, 16, 15, 9, 0.6, 0, Math.PI * 2); g.fill();
   const mat = new THREE.PointsMaterial({ size: 0.05, map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
   return new THREE.Points(geo, mat);
+}
+
+// Soch ko'ylak/tana ichidan o'tib ketmasligi uchun ko'krak, qorin va yelkalarga qo'shimcha "to'siqlar"
+function addBodyColliders(vrm) {
+  const mgr = vrm.springBoneManager;
+  if (!mgr) return;
+  const h = vrm.humanoid;
+  const raw = (n) => h.getRawBoneNode(n);
+  const wp = (n) => { const v = new THREE.Vector3(); h.getNormalizedBoneNode(n)?.getWorldPosition(v); return v; };
+  const L = wp('leftUpperArm'), R = wp('rightUpperArm'), hips = wp('hips');
+  const shoulderW = Math.abs(L.x - R.x); // ~0.25–0.35 m
+  const top = (L.y + R.y) / 2;
+  const colliders = [];
+  const add = (boneName, x, y, z, r) => {
+    const bone = raw(boneName) || raw('chest') || raw('spine');
+    if (!bone) return;
+    const c = new VRMSpringBoneCollider(new VRMSpringBoneColliderShapeSphere({ radius: r }));
+    bone.add(c);
+    bone.updateWorldMatrix(true, false);
+    c.position.copy(bone.worldToLocal(new THREE.Vector3(x, y, z)));
+    colliders.push(c);
+  };
+  const s = shoulderW;
+  const chestBone = raw('upperChest') ? 'upperChest' : 'chest';
+  // ko'krak (oldinga chiqib turgan qism)
+  for (const fx of [-0.3, 0, 0.3]) add(chestBone, fx * s, top - 0.13, 0.05, s * 0.32);
+  for (const fx of [-0.25, 0.25]) add(chestBone, fx * s, top - 0.06, 0.03, s * 0.3);
+  // qorin
+  for (const fx of [-0.2, 0.2]) add('spine', fx * s, (top + hips.y) / 2 - 0.04, 0.02, s * 0.33);
+  // yelkalar
+  add(chestBone, L.x, top, 0, s * 0.22);
+  add(chestBone, R.x, top, 0, s * 0.22);
+  const group = { colliders, name: 'aiko-body' };
+  for (const j of mgr.joints) j.colliderGroups = [...j.colliderGroups, group];
+}
+
+// Personaj kartasi uchun portret: VRM modeldan rasm chizadi (dataURL)
+export async function renderPortrait(url, { look = null, expression = 'happy', weight = 0.8, tilt = 0, turn = 0.15, bg = ['#3b2d6b', '#f2b5c8'], w = 480, h = 600 } = {}) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+  renderer.setSize(w, h, false);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffeef8, 0x445577, 1.3));
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1, 2, 2); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xa0c8ff, 1.4); rim.position.set(-1.5, 1.5, -1.5); scene.add(rim);
+  const loader = new GLTFLoader();
+  loader.register((p) => new VRMLoaderPlugin(p));
+  const gltf = await loader.loadAsync(url);
+  const vrm = gltf.userData.vrm;
+  VRMUtils.rotateVRM0(vrm);
+  if (look) applyLook(vrm, look);
+  scene.add(vrm.scene);
+  const f = vrm.meta?.metaVersion === '0' ? -1 : 1;
+  const hb0 = (n) => vrm.humanoid.getNormalizedBoneNode(n);
+  const hb = (n) => { const b = hb0(n); if (!b) return null; return { rotation: { set: (x, y, z) => b.rotation.set(x * f, y, z * f) }, getWorldPosition: (v) => b.getWorldPosition(v) }; };
+  hb('leftUpperArm')?.rotation.set(0, -0.1, -1.22);
+  hb('rightUpperArm')?.rotation.set(0, 0.1, 1.22);
+  hb('leftLowerArm')?.rotation.set(0, -0.25, 0);
+  hb('rightLowerArm')?.rotation.set(0, 0.25, 0);
+  hb('head')?.rotation.set(0.04, turn, tilt);
+  hb('neck')?.rotation.set(0, turn * 0.5, tilt * 0.3);
+  vrm.expressionManager?.setValue(expression, weight);
+  vrm.update(0);
+  vrm.scene.updateMatrixWorld(true);
+  const head = new THREE.Vector3();
+  hb('head').getWorldPosition(head);
+  const cam = new THREE.PerspectiveCamera(24, w / h, 0.1, 20);
+  cam.position.set(0.12, head.y - 0.05, 1.25);
+  cam.lookAt(0, head.y - 0.12, 0);
+  renderer.render(scene, cam);
+  // fon gradient + model
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, bg[0]); gr.addColorStop(1, bg[1]);
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  g.drawImage(renderer.domElement, 0, 0);
+  const out = c.toDataURL('image/jpeg', 0.88);
+  VRMUtils.deepDispose(vrm.scene);
+  renderer.dispose();
+  renderer.forceContextLoss?.();
+  return out;
+}
+
+// ---------- Ranglarni o'zgartirish (bitta modeldan har xil qizlar) ----------
+// look = { hair: {h, s, lm, la}, eyes: {...}, cloth: {...} }  h,s: 0..1; yorug'lik = l*lm + la
+const LOOK_PARTS = {
+  hair: /hair/i,
+  eyes: /iris/i,
+  cloth: /cloth|tops|bottoms|wear(?!_?metal)/i,
+};
+export function applyLook(vrm, look) {
+  const done = new Map();
+  vrm.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      for (const [part, re] of Object.entries(LOOK_PARTS)) {
+        if (!look[part] || !re.test(m.name || '')) continue;
+        for (const key of ['map', 'shadeMultiplyTexture']) {
+          const tex = m[key];
+          if (!tex?.image) continue;
+          const id = tex.uuid + part;
+          if (!done.has(id)) done.set(id, recolorTexture(tex, look[part]));
+          m[key] = done.get(id);
+        }
+      }
+    }
+  });
+}
+
+function recolorTexture(tex, { h, s = 0.6, lm = 1, la = 0 }) {
+  const img = tex.image;
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height);
+  const p = d.data;
+  for (let i = 0; i < p.length; i += 4) {
+    if (p[i + 3] === 0) continue;
+    const r = p[i] / 255, gg = p[i + 1] / 255, b = p[i + 2] / 255;
+    const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+    let l = (mx + mn) / 2;
+    l = Math.min(1, Math.max(0, l * lm + la));
+    // HSL -> RGB (yangi rang, eski yorug'lik naqshi saqlanadi)
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, pp = 2 * l - q;
+    const hue = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? pp + (q - pp) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? pp + (q - pp) * (2 / 3 - t) * 6 : pp; };
+    p[i] = hue(h + 1 / 3) * 255; p[i + 1] = hue(h) * 255; p[i + 2] = hue(h - 1 / 3) * 255;
+  }
+  g.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = tex.colorSpace; t.flipY = tex.flipY;
+  t.wrapS = tex.wrapS; t.wrapT = tex.wrapT; t.channel = tex.channel;
+  t.offset.copy(tex.offset); t.repeat.copy(tex.repeat);
+  t.needsUpdate = true;
+  return t;
 }

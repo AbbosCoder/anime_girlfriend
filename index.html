@@ -5,22 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Aiko</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
   <canvas id="scene"></canvas>
 
-  <div id="bubble" class="hidden"><div id="bubbleText"></div></div>
+  <div id="bubble" class="hidden"><span id="bubbleName">Aiko</span><div id="bubbleText"></div></div>
   <div id="heard" class="hidden"></div>
+  <div id="status"></div>
 
   <div id="log"></div>
 
   <form id="bar" autocomplete="off">
-    <button type="button" id="mic" title="Gapirish (bosing, yana bosib yuboring)">
+    <button type="button" id="mic" title="Mikrofonni o'chirish / yoqish">
       <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
       <span id="micRing"></span>
     </button>
-    <input id="text" placeholder="Aikoga yozing..." maxlength="1000" />
+    <input id="text" placeholder="Yozing yoki shunchaki gapiring..." maxlength="1000" />
     <button type="submit" id="send" title="Yuborish">
       <svg viewBox="0 0 24 24"><path d="M3 20.5 21 12 3 3.5v6.6l12 1.9-12 1.9z"/></svg>
     </button>
@@ -29,28 +31,59 @@
   <button id="gear" title="Sozlamalar">⚙</button>
   <div id="settings" class="hidden">
     <h3>Sozlamalar</h3>
+    <div id="subInfo" class="hint"></div>
+    <button id="changeChar" type="button">👭 Personajni almashtirish</button>
     <label>Ovoz
-      <select id="voice">
-        <option>Leda</option><option>Kore</option><option>Aoede</option><option>Zephyr</option>
-        <option>Callirrhoe</option><option>Despina</option><option>Laomedeia</option><option>Autonoe</option>
-      </select>
+      <select id="voice"></select>
     </label>
-    <label class="row"><input type="checkbox" id="voiceOn" checked /> Ovoz bilan javob bersin</label>
-    <label>O'z modelingiz (.vrm)
-      <input type="file" id="vrmFile" accept=".vrm" />
+    <label>Gapni bo'lish sezgirligi
+      <input type="range" id="barge" min="0.02" max="0.2" step="0.01" value="0.06" />
     </label>
-    <p class="hint">VRoid Studio'da qiz yarating yoki VRoid Hub'dan .vrm yuklab oling. Faylni ekranga sudrab tashlasangiz ham bo'ladi.</p>
-    <button id="forget" type="button">Xotirani tozalash</button>
-    <div id="memoryView"></div>
+    <p class="hint">U gapirayotganda siz gapirsangiz, to'xtaydi. O'z ovozini eshitib to'xtab qolsa — qiymatni oshiring yoki quloqchin taqing.</p>
+    <details>
+      <summary>U siz haqingizda nimalarni eslaydi</summary>
+      <div id="memoryView"></div>
+    </details>
+    <button id="forget" type="button">🧹 Xotirani tozalash</button>
+    <button id="logout" type="button">🚪 Chiqish</button>
   </div>
 
-  <div id="start">
-    <div class="card">
+  <!-- Kirish / obuna / personaj tanlash / boshlash -->
+  <div id="gate">
+    <div class="card" data-screen="loading">
       <div class="logo">🌸</div>
-      <h1>Aiko</h1>
+      <p>Yuklanmoqda...</p>
+    </div>
+
+    <div class="card" data-screen="login">
+      <div class="logo">🌸</div>
+      <h1>Salom!</h1>
+      <p>Davom etish uchun Telegram orqali kiring.</p>
+      <a class="btn" id="loginBtn" target="_blank" rel="noopener">✈️ Telegram orqali kirish</a>
+      <p class="hint">Botda <b>🔗 Brauzerda ochish</b> tugmasini bosing — shaxsiy havola keladi.</p>
+      <p class="err" id="loginErr"></p>
+    </div>
+
+    <div class="card" data-screen="paywall">
+      <div class="logo">💌</div>
+      <h1>Obuna kerak</h1>
+      <p>U sizni kutyapti... Suhbatni boshlash uchun oylik obunani botda rasmiylashtiring.</p>
+      <a class="btn" id="payBtn" target="_blank" rel="noopener">💳 Obuna olish</a>
+      <button class="btn ghost" id="recheck" type="button">To'ladim — qayta tekshirish</button>
+    </div>
+
+    <div class="card wide" data-screen="characters">
+      <h1>Kim bilan gaplashasiz?</h1>
+      <div id="charList"></div>
+    </div>
+
+    <div class="card" data-screen="start">
+      <div class="logo">🌸</div>
+      <h1 id="startName">Aiko</h1>
       <p id="loadText">Yuklanmoqda...</p>
       <div class="progress"><div id="progressBar"></div></div>
-      <button id="startBtn" disabled>Tanishish</button>
+      <button class="btn" id="startBtn" disabled>Boshlash</button>
+      <p class="hint">Mikrofonga ruxsat bering. Quloqchin bilan yanada yaxshi.</p>
     </div>
   </div>
 

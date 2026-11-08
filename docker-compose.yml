@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    container_name: aiko-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    ports:
+      # faqat ichki tarmoqda: tashqariga Caddy (HTTPS) orqali chiqadi
+      - "172.17.0.1:8094:3000"
+    volumes:
+      - ./data:/app/data
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

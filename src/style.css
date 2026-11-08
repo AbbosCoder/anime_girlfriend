@@ -18,8 +18,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2350; col
   box-shadow: 0 10px 40px rgba(80, 20, 80, 0.35);
   transition: opacity .3s, transform .3s;
 }
-#bubble::before {
-  content: "Aiko"; position: absolute; top: -12px; left: 18px;
+#bubbleName {
+  position: absolute; top: -12px; left: 18px;
   background: var(--pink); color: white; font-size: 12px; font-weight: 700;
   padding: 3px 10px; border-radius: 10px; letter-spacing: .5px;
 }
@@ -63,9 +63,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2350; col
 #bar button:active { transform: scale(0.94); }
 #bar button svg { width: 22px; height: 22px; fill: currentColor; }
 #send { background: var(--pink) !important; }
-#mic.rec { background: #ff4d7d; }
+#mic.muted { background: #555 !important; opacity: .7; }
+#mic.muted svg { opacity: .5; }
+#mic.live { background: rgba(255, 126, 182, 0.45); }
 #micRing { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #ff4d7d; opacity: 0; pointer-events: none; }
-#mic.rec #micRing { opacity: 1; }
+#mic.live #micRing { opacity: 1; transition: transform .08s; }
 #bar.busy #send { opacity: .5; }
 
 #gear {
@@ -87,22 +89,70 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2350; col
 #settings button { padding: 8px; border: 0; border-radius: 10px; background: rgba(255,255,255,.15); color: white; cursor: pointer; }
 #memoryView { font-size: 12px; opacity: .8; white-space: pre-line; }
 
-#start {
-  position: fixed; inset: 0; display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 40%, rgba(122, 90, 158, 0.6), rgba(20, 14, 40, 0.95));
-  transition: opacity .6s; z-index: 10;
+
+#status {
+  position: fixed; left: 50%; bottom: 84px; translate: -50% 0; font-size: 12px; letter-spacing: .5px;
+  padding: 3px 12px; border-radius: 999px; background: var(--glass); backdrop-filter: blur(8px);
+  transition: opacity .3s; white-space: nowrap;
 }
-#start.gone { opacity: 0; pointer-events: none; }
-#start .card { text-align: center; width: min(320px, calc(100vw - 32px)); }
-#start .logo { font-size: 64px; animation: float 3s ease-in-out infinite; }
+#status:empty { opacity: 0; }
+#bubble { bottom: 120px; }
+#settings input[type=range] { accent-color: var(--pink); }
+
+#settings details { font-size: 13px; }
+#settings summary { cursor: pointer; opacity: .85; }
+#memoryView { margin-top: 6px; }
+
+#gate {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; padding: 16px;
+  background: radial-gradient(circle at 50% 40%, rgba(122, 90, 158, 0.6), rgba(20, 14, 40, 0.95));
+  transition: opacity .6s; overflow-y: auto;
+}
+#gate.gone { opacity: 0; pointer-events: none; }
+#gate .card { display: none; text-align: center; width: min(340px, 100%); }
+#gate .card.wide { width: min(900px, 100%); }
+#gate[data-screen="loading"] [data-screen="loading"],
+#gate[data-screen="login"] [data-screen="login"],
+#gate[data-screen="paywall"] [data-screen="paywall"],
+#gate[data-screen="characters"] [data-screen="characters"],
+#gate[data-screen="start"] [data-screen="start"] { display: block; }
+#gate .logo { font-size: 64px; animation: float 3s ease-in-out infinite; }
 @keyframes float { 50% { transform: translateY(-10px) rotate(6deg); } }
-#start h1 { margin: 6px 0; font-size: 42px; letter-spacing: 4px; }
-#start p { opacity: .8; }
+#gate h1 { margin: 6px 0 10px; font-size: 32px; letter-spacing: 1px; }
+#gate p { opacity: .85; line-height: 1.5; }
+#gate .hint { font-size: 13px; opacity: .65; }
+#gate .err { color: #ff9db8; font-size: 14px; }
 .progress { height: 6px; background: rgba(255,255,255,.15); border-radius: 3px; overflow: hidden; margin: 12px 0 20px; }
 #progressBar { height: 100%; width: 0; background: var(--pink); transition: width .2s; }
-#startBtn {
-  padding: 14px 40px; font-size: 18px; border: 0; border-radius: 999px; cursor: pointer;
-  background: linear-gradient(135deg, var(--pink), #b57bff); color: white; font-weight: 600;
-  box-shadow: 0 8px 30px rgba(255, 126, 182, 0.5);
+.btn {
+  display: inline-block; padding: 14px 32px; font-size: 17px; border: 0; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(135deg, var(--pink), #b57bff); color: white; font-weight: 600; text-decoration: none;
+  box-shadow: 0 8px 30px rgba(255, 126, 182, 0.4); margin: 6px 0; font-family: inherit;
 }
-#startBtn:disabled { opacity: .4; cursor: default; }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.ghost { background: rgba(255,255,255,.12); box-shadow: none; font-size: 14px; padding: 10px 20px; }
+#charList { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 18px; }
+.char {
+  text-align: left; padding: 0; border-radius: 24px; cursor: pointer; color: inherit; font-family: inherit; overflow: hidden;
+  background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.12);
+  transition: transform .2s, border-color .2s, box-shadow .2s; display: flex; flex-direction: column;
+}
+.char:hover { transform: translateY(-4px); border-color: var(--pink); box-shadow: 0 14px 40px rgba(255, 126, 182, .25); }
+.char.sel { border-color: var(--pink); }
+.char .pic { aspect-ratio: 4 / 5; background: linear-gradient(160deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); position: relative; overflow: hidden; }
+.char .pic::after { content: "🌸"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 40px; animation: float 2s ease-in-out infinite; }
+.char .pic.ready::after { display: none; }
+.char .pic img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .5s, transform .4s; }
+.char .pic.ready img { opacity: 1; }
+.char:hover .pic img { transform: scale(1.04); }
+.char .info { padding: 16px 18px 18px; display: flex; flex-direction: column; flex: 1; }
+.char h3 { margin: 0 0 2px; font-size: 24px; }
+.char .tag { color: var(--pink-2); font-size: 13px; font-weight: 600; letter-spacing: .3px; }
+.char p { font-size: 14px; opacity: .8; margin: 10px 0 14px; line-height: 1.5; flex: 1; }
+.char .pick { align-self: flex-start; padding: 8px 18px; border-radius: 999px; background: linear-gradient(135deg, var(--pink), #b57bff); font-size: 14px; font-weight: 600; }
+@media (max-width: 560px) {
+  #charList { grid-template-columns: 1fr; }
+  .char { flex-direction: row; }
+  .char .pic { aspect-ratio: auto; width: 120px; flex: none; }
+  .char p { margin: 6px 0 10px; font-size: 13px; }
+}
